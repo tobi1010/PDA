@@ -2,8 +2,9 @@
 
 Local browser-based tool for creating PDAs and exporting them as SVG.
 Only intended for convenience and studying
->>>>100% vibe coded<<<<
+!!!!100% vibe coded!!!!
 may not always work as intended
+
 ## Features
 
 - Full run to check whether a word is accepted
