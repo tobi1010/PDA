@@ -1,5 +1,6 @@
 import './style.css'
 import { downloadAutomatonJson, parseAutomaton } from './persistence'
+import { simulateWord, type SimulationResult } from './simulator'
 import { buildSvgMarkup } from './svgScene'
 import { downloadAutomatonSvg } from './svgExport'
 import {
@@ -10,6 +11,7 @@ import {
   clampStatePosition,
   createState,
   createTransition,
+  formatTransitionLabel,
   type EditorMode,
   type Selection,
   type StateNode,
@@ -31,11 +33,24 @@ interface DragState {
   offsetY: number
 }
 
+function displayWord(word: string): string {
+  return word.length === 0 ? 'ε' : word
+}
+
+function sliceWordSymbols(word: string, start: number, end?: number): string {
+  return Array.from(word).slice(start, end).join('')
+}
+
 export class EditorApp {
   private readonly root: HTMLElement
   private readonly canvasHost: HTMLDivElement
   private readonly inspectorHost: HTMLDivElement
   private readonly statusHost: HTMLParagraphElement
+  private readonly runnerInput: HTMLInputElement
+  private readonly runButton: HTMLButtonElement
+  private readonly stepButton: HTMLButtonElement
+  private readonly resetRunButton: HTMLButtonElement
+  private readonly runnerResultHost: HTMLDivElement
   private readonly selectButton: HTMLButtonElement
   private readonly addStateButton: HTMLButtonElement
   private readonly connectButton: HTMLButtonElement
@@ -55,6 +70,9 @@ export class EditorApp {
   private dragState: DragState | null = null
   private notice: string | null = null
   private noticeTimeout = 0
+  private runnerWord = ''
+  private runnerResult: SimulationResult | null = null
+  private runnerStepIndex = -1
 
   public constructor(root: HTMLElement) {
     this.root = root
@@ -78,9 +96,21 @@ export class EditorApp {
             <div class="canvas-heading">
               <div>
                 <h1>pda</h1>
-                <p>Grid-snapped draggable states, editable transitions, JSON save/load, and standalone SVG export.</p>
+                <p>Grid-snapped draggable states, editable transitions, JSON save/load, simulation, and standalone SVG export.</p>
               </div>
               <p class="canvas-meta">Canvas ${CANVAS_WIDTH} × ${CANVAS_HEIGHT}, grid ${GRID_SIZE}px</p>
+            </div>
+            <div class="runner-panel">
+              <label class="runner-field">
+                <span>Word</span>
+                <input type="text" data-runner-input placeholder="Leave empty for ε" />
+              </label>
+              <div class="runner-actions">
+                <button type="button" data-action="run">Run full</button>
+                <button type="button" data-action="step">Step</button>
+                <button type="button" data-action="reset-run">Reset step</button>
+              </div>
+              <div class="runner-result"></div>
             </div>
             <div class="canvas-frame">
               <div class="canvas-host"></div>
@@ -97,6 +127,11 @@ export class EditorApp {
     this.canvasHost = this.root.querySelector<HTMLDivElement>('.canvas-host')!
     this.inspectorHost = this.root.querySelector<HTMLDivElement>('.inspector-host')!
     this.statusHost = this.root.querySelector<HTMLParagraphElement>('.status-line')!
+    this.runnerInput = this.root.querySelector<HTMLInputElement>('[data-runner-input]')!
+    this.runButton = this.root.querySelector<HTMLButtonElement>('[data-action="run"]')!
+    this.stepButton = this.root.querySelector<HTMLButtonElement>('[data-action="step"]')!
+    this.resetRunButton = this.root.querySelector<HTMLButtonElement>('[data-action="reset-run"]')!
+    this.runnerResultHost = this.root.querySelector<HTMLDivElement>('.runner-result')!
     this.selectButton = this.root.querySelector<HTMLButtonElement>('[data-mode="select"]')!
     this.addStateButton = this.root.querySelector<HTMLButtonElement>('[data-mode="add-state"]')!
     this.connectButton = this.root.querySelector<HTMLButtonElement>('[data-mode="connect"]')!
@@ -116,8 +151,23 @@ export class EditorApp {
     this.connectButton.addEventListener('click', () => this.setMode('connect'))
     this.loadButton.addEventListener('click', () => this.openJsonFilePicker())
     this.saveButton.addEventListener('click', () => this.saveJson())
+    this.runButton.addEventListener('click', () => this.runFullSimulation())
+    this.stepButton.addEventListener('click', () => this.stepSimulation())
+    this.resetRunButton.addEventListener('click', () => this.resetSimulation())
     this.deleteButton.addEventListener('click', () => this.deleteSelection())
     this.exportButton.addEventListener('click', () => this.exportSvg())
+    this.runnerInput.addEventListener('input', () => {
+      this.runnerWord = this.runnerInput.value
+      this.resetSimulationState()
+      this.renderRunner()
+      this.renderCanvas()
+    })
+    this.runnerInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        this.runFullSimulation()
+      }
+    })
     this.fileInput.addEventListener('change', () => {
       void this.handleFileSelection()
     })
@@ -171,6 +221,9 @@ export class EditorApp {
 
     const hasSelection = this.selection !== null
     this.deleteButton.disabled = !hasSelection
+    this.runButton.disabled = this.states.length === 0
+    this.stepButton.disabled = this.states.length === 0
+    this.resetRunButton.disabled = this.runnerResult === null && this.runnerStepIndex < 0
     this.exportButton.disabled = this.states.length === 0
   }
 
@@ -180,6 +233,7 @@ export class EditorApp {
       transitions: this.transitions,
       selection: this.selection,
       connectFromId: this.connectFromId,
+      runStateId: this.getCurrentRunStateId(),
       showGrid: true,
       interactive: true,
     })
@@ -265,13 +319,17 @@ export class EditorApp {
 
         state.isStart = startInput.checked
         this.clearNotice()
+        this.resetSimulationState()
         this.renderCanvas()
+        this.renderRunner()
       })
 
       acceptInput.addEventListener('change', () => {
         state.isAccept = acceptInput.checked
         this.clearNotice()
+        this.resetSimulationState()
         this.renderCanvas()
+        this.renderRunner()
       })
 
       return
@@ -322,7 +380,9 @@ export class EditorApp {
         field.addEventListener('input', () => {
           transition[key] = field.value.trim()
           this.clearNotice()
+          this.resetSimulationState()
           this.renderCanvas()
+          this.renderRunner()
           updateValidation()
         })
       }
@@ -342,10 +402,48 @@ export class EditorApp {
         <ul>
           <li>Add state mode places new states on the next grid snap.</li>
           <li>Connect mode creates transitions, including self-loops.</li>
+          <li>Run full checks acceptance for the current word.</li>
+          <li>Step walks one accepting run state by state.</li>
           <li>Export SVG saves only the automaton, without the grid.</li>
           <li>Load and save JSON keep the automaton on disk.</li>
         </ul>
       </section>`
+  }
+
+  private renderRunner(): void {
+    this.runnerInput.value = this.runnerWord
+
+    if (this.runnerResult === null) {
+      this.runnerResultHost.className = 'runner-result runner-result--idle'
+      this.runnerResultHost.innerHTML = `<p>Enter a word and choose <strong>Run full</strong> or <strong>Step</strong>. Empty input is treated as ε.</p>`
+      return
+    }
+
+    const statusClass = `runner-result runner-result--${this.runnerResult.status}`
+    const baseLine = `<p class="runner-result-title">${this.runnerResult.message}</p>`
+    const summaryLine = `<p class="runner-result-meta">Input: <code>${escapeAttribute(displayWord(this.runnerWord))}</code> · Explored configurations: ${this.runnerResult.explored}</p>`
+
+    if (this.runnerResult.status === 'accepted' && this.runnerStepIndex >= 0) {
+      const traceStep = this.runnerResult.trace[this.runnerStepIndex]
+      const state = this.states.find(({ id }) => id === traceStep.stateId)
+      const transition = traceStep.transitionId === null
+        ? null
+        : this.transitions.find(({ id }) => id === traceStep.transitionId) ?? null
+      const consumed = displayWord(sliceWordSymbols(this.runnerWord, 0, traceStep.inputIndex))
+      const remaining = displayWord(sliceWordSymbols(this.runnerWord, traceStep.inputIndex))
+      const stack = traceStep.stack.length === 0 ? '∅' : traceStep.stack.join(' ')
+      const stepLine = `<p class="runner-result-meta">Step ${this.runnerStepIndex + 1}/${this.runnerResult.trace.length}: <strong>${escapeAttribute(state?.label ?? traceStep.stateId)}</strong> · consumed <code>${escapeAttribute(consumed)}</code> · remaining <code>${escapeAttribute(remaining)}</code> · stack <code>${escapeAttribute(stack)}</code></p>`
+      const transitionLine = transition
+        ? `<p class="runner-result-meta">via <code>${escapeAttribute(transition.id)}</code> = <code>${escapeAttribute(formatTransitionLabel(transition))}</code></p>`
+        : '<p class="runner-result-meta">Start configuration.</p>'
+
+      this.runnerResultHost.className = statusClass
+      this.runnerResultHost.innerHTML = `${baseLine}${summaryLine}${stepLine}${transitionLine}`
+      return
+    }
+
+    this.runnerResultHost.className = statusClass
+    this.runnerResultHost.innerHTML = `${baseLine}${summaryLine}`
   }
 
   private renderStatus(): void {
@@ -419,6 +517,7 @@ export class EditorApp {
       this.connectFromId = null
       this.selection = { type: 'transition', id: transition.id }
       this.clearNotice()
+      this.resetSimulationState()
       this.render()
       return
     }
@@ -499,6 +598,7 @@ export class EditorApp {
     this.states = [...this.states, state]
     this.selection = { type: 'state', id: state.id }
     this.clearNotice()
+    this.resetSimulationState()
     this.render()
   }
 
@@ -522,6 +622,7 @@ export class EditorApp {
 
     this.selection = null
     this.clearNotice()
+    this.resetSimulationState()
     this.render()
   }
 
@@ -552,6 +653,7 @@ export class EditorApp {
       this.mode = 'select'
       this.nextStateIndex = this.computeNextIndex(this.states.map(({ id }) => id), 'q')
       this.nextTransitionIndex = this.computeNextIndex(this.transitions.map(({ id }) => id), 't')
+      this.resetSimulationState()
       this.setNotice(`Loaded ${document.states.length} states and ${document.transitions.length} transitions from ${file.name}.`)
       this.render()
     } catch (error) {
@@ -567,6 +669,62 @@ export class EditorApp {
 
     downloadAutomatonSvg(this.states, this.transitions)
     this.setNotice('Exported automaton SVG without the editor grid.')
+  }
+
+  private runFullSimulation(): void {
+    this.runnerWord = this.runnerInput.value
+    this.runnerResult = simulateWord(this.states, this.transitions, this.runnerWord)
+    this.runnerStepIndex = this.runnerResult.status === 'accepted' ? this.runnerResult.trace.length - 1 : -1
+    this.renderToolbar()
+    this.renderCanvas()
+    this.renderRunner()
+  }
+
+  private stepSimulation(): void {
+    this.runnerWord = this.runnerInput.value
+
+    const needsFreshRun = this.runnerResult === null || this.runnerStepIndex >= this.runnerResult.trace.length - 1
+
+    if (needsFreshRun) {
+      this.runnerResult = simulateWord(this.states, this.transitions, this.runnerWord)
+
+      if (this.runnerResult.status !== 'accepted') {
+        this.runnerStepIndex = -1
+        this.renderToolbar()
+        this.renderCanvas()
+        this.renderRunner()
+        return
+      }
+
+      this.runnerStepIndex = 0
+    } else {
+      this.runnerStepIndex += 1
+    }
+
+    this.renderToolbar()
+    this.renderCanvas()
+    this.renderRunner()
+  }
+
+  private resetSimulation(): void {
+    this.resetSimulationState()
+    this.renderToolbar()
+    this.renderCanvas()
+    this.renderRunner()
+  }
+
+  private resetSimulationState(): void {
+    this.runnerResult = null
+    this.runnerStepIndex = -1
+  }
+
+  private getCurrentRunStateId(): string | null {
+    if (this.runnerResult?.status !== 'accepted' || this.runnerStepIndex < 0) {
+      return null
+    }
+
+    const step = this.runnerResult.trace[this.runnerStepIndex]
+    return step?.stateId ?? null
   }
 
   private setNotice(message: string): void {

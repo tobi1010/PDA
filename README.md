@@ -1,6 +1,6 @@
 # pda
 
-Local browser-based tool for creating pushdown automatons and exporting them as SVG.
+Local browser-based tool for creating PDAs and exporting them as SVG.
 
 ## Features
 
@@ -12,6 +12,8 @@ Local browser-based tool for creating pushdown automatons and exporting them as 
 - Transition labels rendered as `input | stackTop -> stackResult`
 - `\\e` displayed as `ε`
 - `$` supported as the stack end symbol
+- Full run to check whether a word is accepted
+- Step mode to walk an accepting run state by state
 - Export to standalone SVG
 - Save/load PDA files as JSON files
 
@@ -53,9 +55,11 @@ Open that URL in your browser.
 3. Click `Connect`, then click a source state and a target state to create a transition.
 4. Select a state to edit its label or toggle start/accept status.
 5. Select a transition to edit `input`, `stackTop`, and `stackResult`.
-6. Click `Save JSON` to save the automaton to disk.
-7. Click `Load JSON` to reopen a saved automaton.
-8. Click `Export SVG` to export only the automaton drawing.
+6. Enter a word and click `Run full` to check whether the PDA accepts it.
+7. Click `Step` to walk one accepting run state by state.
+8. Click `Save JSON` to save the automaton to disk.
+9. Click `Load JSON` to reopen a saved automaton.
+10. Click `Export SVG` to export only the automaton drawing.
 
 use \e for ε
 

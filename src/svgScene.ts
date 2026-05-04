@@ -15,6 +15,7 @@ interface SvgSceneOptions {
   transitions: Transition[]
   selection: Selection
   connectFromId: string | null
+  runStateId: string | null
   showGrid: boolean
   interactive: boolean
   viewBox?: string
@@ -50,9 +51,16 @@ function markerDefinitions(showGrid: boolean): string {
     </defs>`
 }
 
-function renderState(state: StateNode, selection: Selection, connectFromId: string | null, interactive: boolean): string {
+function renderState(
+  state: StateNode,
+  selection: Selection,
+  connectFromId: string | null,
+  runStateId: string | null,
+  interactive: boolean,
+): string {
   const selected = selection?.type === 'state' && selection.id === state.id
   const connectSource = connectFromId === state.id
+  const isRunningState = runStateId === state.id
   const classes = ['state-node']
 
   if (selected) {
@@ -61,6 +69,10 @@ function renderState(state: StateNode, selection: Selection, connectFromId: stri
 
   if (connectSource) {
     classes.push('is-connect-source')
+  }
+
+  if (isRunningState) {
+    classes.push('is-run-current')
   }
 
   const startArrow = state.isStart
@@ -151,7 +163,7 @@ export function buildSvgMarkup(options: SvgSceneOptions): string {
     .join('')
 
   const stateLayer = options.states
-    .map((state) => renderState(state, options.selection, options.connectFromId, options.interactive))
+    .map((state) => renderState(state, options.selection, options.connectFromId, options.runStateId, options.interactive))
     .join('')
 
   return `
@@ -185,6 +197,7 @@ export function buildExportSvg(states: StateNode[], transitions: Transition[]): 
     transitions,
     selection: null,
     connectFromId: null,
+    runStateId: null,
     showGrid: false,
     interactive: false,
     viewBox,

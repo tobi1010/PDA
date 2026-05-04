@@ -152,6 +152,60 @@ code {
   font-size: 0.95rem;
 }
 
+.runner-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) auto minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+.runner-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  color: #cbd5e1;
+}
+
+.runner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.runner-result {
+  min-height: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.56);
+  padding: 0.85rem 1rem;
+}
+
+.runner-result--idle {
+  color: #94a3b8;
+}
+
+.runner-result--accepted {
+  border-color: rgba(74, 222, 128, 0.35);
+  background: rgba(20, 83, 45, 0.24);
+}
+
+.runner-result--rejected,
+.runner-result--error {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.22);
+}
+
+.runner-result-title {
+  margin: 0 0 0.2rem;
+  color: #f8fafc;
+}
+
+.runner-result-meta {
+  margin: 0;
+  color: #cbd5e1;
+}
+
 .canvas-frame {
   overflow: hidden;
   border-radius: 24px;
@@ -221,6 +275,11 @@ code {
 .state-node.is-selected .state-circle,
 .transition-edge.is-selected .transition-path {
   stroke: #60a5fa;
+}
+
+.state-node.is-run-current .state-circle {
+  stroke: #f59e0b;
+  stroke-width: 4;
 }
 
 .transition-edge.is-selected .transition-label-bg {
@@ -311,8 +370,14 @@ code {
   }
 
   .canvas-heading,
-  .toolbar {
+  .toolbar,
+  .runner-panel {
     flex-direction: column;
+  }
+
+  .runner-panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .canvas-meta {
