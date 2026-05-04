@@ -1,17 +1,11 @@
 # pda
 
 Local browser-based tool for creating PDAs and exporting them as SVG.
-
+Only intended for convenience and studying
+>>>>100% vibe coded<<<<
+may not always work as intended
 ## Features
 
-- Grid-based canvas with snap-to-grid state placement
-- Draggable circular states
-- Start state arrow
-- Accept-state double circle
-- Transitions between states and self-loops
-- Transition labels rendered as `input | stackTop -> stackResult`
-- `\\e` displayed as `ε`
-- `$` supported as the stack end symbol
 - Full run to check whether a word is accepted
 - Step mode to walk an accepting run state by state
 - Export to standalone SVG
@@ -27,7 +21,7 @@ Local browser-based tool for creating PDAs and exporting them as SVG.
 Clone the repository and install dependencies:
 
 ```bash
-git clone <repo-url>
+git clone git@github.com:tobi1010/pda.git 
 cd pda
 npm install
 ```
@@ -47,21 +41,6 @@ http://localhost:5173/
 ```
 
 Open that URL in your browser.
-
-## Usage
-
-1. Click `Add state`, then click the canvas to place a state.
-2. Drag states to move them. They snap to the grid.
-3. Click `Connect`, then click a source state and a target state to create a transition.
-4. Select a state to edit its label or toggle start/accept status.
-5. Select a transition to edit `input`, `stackTop`, and `stackResult`.
-6. Enter a word and click `Run full` to check whether the PDA accepts it.
-7. Click `Step` to walk one accepting run state by state.
-8. Click `Save JSON` to save the automaton to disk.
-9. Click `Load JSON` to reopen a saved automaton.
-10. Click `Export SVG` to export only the automaton drawing.
-
-use \e for ε
 
 ## JSON Format
 
