@@ -46,20 +46,6 @@ http://localhost:5173/
 
 Open that URL in your browser.
 
-## Build
-
-Create a production build:
-
-```bash
-npm run build
-```
-
-Preview the built app locally:
-
-```bash
-npm run preview
-```
-
 ## Usage
 
 1. Click `Add state`, then click the canvas to place a state.
@@ -71,19 +57,7 @@ npm run preview
 7. Click `Load JSON` to reopen a saved automaton.
 8. Click `Export SVG` to export only the automaton drawing.
 
-## Transition Symbols
-
-- Input must be one character or `\\e`
-- Stack top must be one character, `$`, or `\\e`
-- Stack result must be one character, `$`, or `\\e`
-- Multi-character values like `a$` are invalid
-
-Examples:
-
-- `a | ε -> a`
-- `a | a -> ε`
-- `ε | $ -> a`
-- `ε | $ -> ε`
+use \e for ε
 
 ## JSON Format
 
