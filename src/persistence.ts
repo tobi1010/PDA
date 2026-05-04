@@ -175,7 +175,7 @@ export function downloadAutomatonJson(states: StateNode[], transitions: Transiti
   const link = document.createElement('a')
 
   link.href = url
-  link.download = 'pushdown-automaton.json'
+  link.download = 'pda.json'
   document.body.append(link)
   link.click()
   link.remove()

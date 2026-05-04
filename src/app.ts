@@ -77,7 +77,7 @@ export class EditorApp {
           <section class="canvas-panel">
             <div class="canvas-heading">
               <div>
-                <h1>Pushdown Automaton Builder</h1>
+                <h1>pda</h1>
                 <p>Grid-snapped draggable states, editable transitions, JSON save/load, and standalone SVG export.</p>
               </div>
               <p class="canvas-meta">Canvas ${CANVAS_WIDTH} × ${CANVAS_HEIGHT}, grid ${GRID_SIZE}px</p>

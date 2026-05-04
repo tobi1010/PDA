@@ -8,7 +8,7 @@ export function downloadAutomatonSvg(states: StateNode[], transitions: Transitio
   const link = document.createElement('a')
 
   link.href = url
-  link.download = 'pushdown-automaton.svg'
+  link.download = 'pda.svg'
   document.body.append(link)
   link.click()
   link.remove()
