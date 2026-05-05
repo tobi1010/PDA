@@ -1,4 +1,4 @@
-import { EPSILON_TOKEN, STACK_END_SYMBOL, type StateNode, type Transition, validateTransition } from './model'
+import { EPSILON_TOKEN, type StateNode, type Transition, validateTransition } from './model'
 
 const MAX_CONFIGURATIONS = 100000
 const STACK_SEPARATOR = '\u0001'
@@ -9,22 +9,21 @@ interface Configuration {
   stack: string[]
 }
 
-interface Predecessor {
-  previousKey: string | null
-  transitionId: string | null
+export interface SimulationStepConfiguration {
+  stateId: string
+  stack: string[]
 }
 
-export interface SimulationTraceStep {
-  stateId: string
+export interface SimulationStep {
   inputIndex: number
-  stack: string[]
-  transitionId: string | null
+  activeStateIds: string[]
+  configurations: SimulationStepConfiguration[]
 }
 
 export interface SimulationResult {
   status: 'accepted' | 'rejected' | 'error'
   message: string
-  trace: SimulationTraceStep[]
+  steps: SimulationStep[]
   explored: number
 }
 
@@ -32,13 +31,15 @@ function createConfigurationKey(configuration: Configuration): string {
   return `${configuration.stateId}|${configuration.inputIndex}|${configuration.stack.join(STACK_SEPARATOR)}`
 }
 
-function applyTransition(configuration: Configuration, transition: Transition, inputSymbols: string[]): Configuration | null {
-  if (transition.input !== EPSILON_TOKEN) {
-    if (configuration.inputIndex >= inputSymbols.length || inputSymbols[configuration.inputIndex] !== transition.input) {
-      return null
-    }
+function cloneConfiguration(configuration: Configuration): Configuration {
+  return {
+    stateId: configuration.stateId,
+    inputIndex: configuration.inputIndex,
+    stack: [...configuration.stack],
   }
+}
 
+function applyTransition(configuration: Configuration, transition: Transition): Configuration | null {
   const nextStack = [...configuration.stack]
 
   if (transition.stackTop !== EPSILON_TOKEN) {
@@ -62,33 +63,90 @@ function applyTransition(configuration: Configuration, transition: Transition, i
   }
 }
 
-function reconstructTrace(
-  endKey: string,
-  configurations: Map<string, Configuration>,
-  predecessors: Map<string, Predecessor>,
-): SimulationTraceStep[] {
-  const reversedTrace: SimulationTraceStep[] = []
-  let currentKey: string | null = endKey
-
-  while (currentKey !== null) {
-    const configuration = configurations.get(currentKey)
-    const predecessor = predecessors.get(currentKey)
-
-    if (!configuration || !predecessor) {
-      break
-    }
-
-    reversedTrace.push({
+function buildStep(configurations: Configuration[], inputIndex: number): SimulationStep {
+  const activeStateIds = [...new Set(configurations.map(({ stateId }) => stateId))].sort()
+  const snapshotConfigurations = configurations
+    .map((configuration) => ({
       stateId: configuration.stateId,
-      inputIndex: configuration.inputIndex,
       stack: [...configuration.stack],
-      transitionId: predecessor.transitionId,
+    }))
+    .sort((left, right) => {
+      const stateCompare = left.stateId.localeCompare(right.stateId)
+
+      if (stateCompare !== 0) {
+        return stateCompare
+      }
+
+      return right.stack.length - left.stack.length || left.stack.join(STACK_SEPARATOR).localeCompare(right.stack.join(STACK_SEPARATOR))
     })
 
-    currentKey = predecessor.previousKey
+  return {
+    inputIndex,
+    activeStateIds,
+    configurations: snapshotConfigurations,
+  }
+}
+
+function epsilonClosure(
+  initialConfigurations: Configuration[],
+  outgoingTransitions: Map<string, Transition[]>,
+  discoveredKeys: Set<string>,
+): { configurations: Configuration[]; overflow: boolean } {
+  const queue: Configuration[] = []
+  const closure = new Map<string, Configuration>()
+
+  for (const configuration of initialConfigurations) {
+    const key = createConfigurationKey(configuration)
+
+    if (closure.has(key)) {
+      continue
+    }
+
+    const nextConfiguration = cloneConfiguration(configuration)
+    closure.set(key, nextConfiguration)
+    queue.push(nextConfiguration)
+    discoveredKeys.add(key)
+
+    if (discoveredKeys.size > MAX_CONFIGURATIONS) {
+      return { configurations: [], overflow: true }
+    }
   }
 
-  return reversedTrace.reverse()
+  while (queue.length > 0) {
+    const current = queue.shift()!
+    const transitions = outgoingTransitions.get(current.stateId) ?? []
+
+    for (const transition of transitions) {
+      if (transition.input !== EPSILON_TOKEN) {
+        continue
+      }
+
+      const nextConfiguration = applyTransition(current, transition)
+
+      if (!nextConfiguration) {
+        continue
+      }
+
+      const key = createConfigurationKey(nextConfiguration)
+
+      if (closure.has(key)) {
+        continue
+      }
+
+      closure.set(key, nextConfiguration)
+      queue.push(nextConfiguration)
+      discoveredKeys.add(key)
+
+      if (discoveredKeys.size > MAX_CONFIGURATIONS) {
+        return { configurations: [], overflow: true }
+      }
+    }
+  }
+
+  return {
+    configurations: [...closure.values()],
+    overflow: false,
+  }
 }
 
 export function simulateWord(states: StateNode[], transitions: Transition[], word: string): SimulationResult {
@@ -98,7 +156,7 @@ export function simulateWord(states: StateNode[], transitions: Transition[], wor
     return {
       status: 'error',
       message: `Transition ${invalidTransition.id} is invalid. Fix the transition before running the PDA.`,
-      trace: [],
+      steps: [],
       explored: 0,
     }
   }
@@ -109,7 +167,7 @@ export function simulateWord(states: StateNode[], transitions: Transition[], wor
     return {
       status: 'error',
       message: 'Exactly one start state is required to run the PDA.',
-      trace: [],
+      steps: [],
       explored: 0,
     }
   }
@@ -118,13 +176,15 @@ export function simulateWord(states: StateNode[], transitions: Transition[], wor
     return {
       status: 'error',
       message: 'At least one accept state is required to run the PDA.',
-      trace: [],
+      steps: [],
       explored: 0,
     }
   }
 
   const inputSymbols = Array.from(word)
   const outgoingTransitions = new Map<string, Transition[]>()
+  const stateById = new Map(states.map((state) => [state.id, state]))
+  const discoveredKeys = new Set<string>()
 
   for (const transition of transitions) {
     const stateTransitions = outgoingTransitions.get(transition.fromId)
@@ -136,74 +196,76 @@ export function simulateWord(states: StateNode[], transitions: Transition[], wor
     }
   }
 
-  const initialConfiguration: Configuration = {
+  let frontier: Configuration[] = [{
     stateId: startStates[0].id,
     inputIndex: 0,
-    stack: [STACK_END_SYMBOL],
-  }
-  const initialKey = createConfigurationKey(initialConfiguration)
-  const queue: Configuration[] = [initialConfiguration]
-  const visited = new Set([initialKey])
-  const configurations = new Map<string, Configuration>([[initialKey, initialConfiguration]])
-  const predecessors = new Map<string, Predecessor>([[initialKey, { previousKey: null, transitionId: null }]])
-  const stateById = new Map(states.map((state) => [state.id, state]))
-  let explored = 0
+    stack: [],
+  }]
+  const steps: SimulationStep[] = []
 
-  while (queue.length > 0) {
-    if (visited.size > MAX_CONFIGURATIONS) {
+  const initialClosure = epsilonClosure(frontier, outgoingTransitions, discoveredKeys)
+
+  if (initialClosure.overflow) {
+    return {
+      status: 'error',
+      message: 'Run limit reached. The PDA may have an unbounded epsilon search.',
+      steps: [],
+      explored: discoveredKeys.size,
+    }
+  }
+
+  frontier = initialClosure.configurations
+  steps.push(buildStep(frontier, 0))
+
+  for (const [index, inputSymbol] of inputSymbols.entries()) {
+    const nextConfigurations = new Map<string, Configuration>()
+
+    for (const configuration of frontier) {
+      const possibleTransitions = outgoingTransitions.get(configuration.stateId) ?? []
+
+      for (const transition of possibleTransitions) {
+        if (transition.input !== inputSymbol) {
+          continue
+        }
+
+        const nextConfiguration = applyTransition(configuration, transition)
+
+        if (!nextConfiguration) {
+          continue
+        }
+
+        nextConfigurations.set(createConfigurationKey(nextConfiguration), nextConfiguration)
+      }
+    }
+
+    const closure = epsilonClosure([...nextConfigurations.values()], outgoingTransitions, discoveredKeys)
+
+    if (closure.overflow) {
       return {
         status: 'error',
         message: 'Run limit reached. The PDA may have an unbounded epsilon search.',
-        trace: [],
-        explored,
+        steps,
+        explored: discoveredKeys.size,
       }
     }
 
-    const currentConfiguration = queue.shift()!
-    const currentKey = createConfigurationKey(currentConfiguration)
-    const currentState = stateById.get(currentConfiguration.stateId)
-
-    explored += 1
-
-    if (!currentState) {
-      continue
-    }
-
-    if (currentState.isAccept && currentConfiguration.inputIndex === inputSymbols.length) {
-      return {
-        status: 'accepted',
-        message: 'Word accepted.',
-        trace: reconstructTrace(currentKey, configurations, predecessors),
-        explored,
-      }
-    }
-
-    const possibleTransitions = outgoingTransitions.get(currentConfiguration.stateId) ?? []
-
-    for (const transition of possibleTransitions) {
-      const nextConfiguration = applyTransition(currentConfiguration, transition, inputSymbols)
-
-      if (!nextConfiguration) {
-        continue
-      }
-
-      const nextKey = createConfigurationKey(nextConfiguration)
-
-      if (visited.has(nextKey)) {
-        continue
-      }
-
-      visited.add(nextKey)
-      configurations.set(nextKey, nextConfiguration)
-      predecessors.set(nextKey, { previousKey: currentKey, transitionId: transition.id })
-      queue.push(nextConfiguration)
-    }
+    frontier = closure.configurations
+    steps.push(buildStep(frontier, index + 1))
   }
 
+  const finalInputIndex = inputSymbols.length
+  const accepted = frontier.some((configuration) => {
+    if (configuration.inputIndex !== finalInputIndex) {
+      return false
+    }
+
+    return stateById.get(configuration.stateId)?.isAccept ?? false
+  })
+
   return {
-    status: 'rejected',
-    message: 'Word rejected.',
-    trace: [],
-    explored,
+    status: accepted ? 'accepted' : 'rejected',
+    message: accepted ? 'Word accepted.' : 'Word rejected.',
+    steps,
+    explored: discoveredKeys.size,
   }
 }

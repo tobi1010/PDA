@@ -15,7 +15,7 @@ interface SvgSceneOptions {
   transitions: Transition[]
   selection: Selection
   connectFromId: string | null
-  runStateId: string | null
+  runStateIds: string[]
   showGrid: boolean
   interactive: boolean
   viewBox?: string
@@ -55,12 +55,12 @@ function renderState(
   state: StateNode,
   selection: Selection,
   connectFromId: string | null,
-  runStateId: string | null,
+  runStateIds: Set<string>,
   interactive: boolean,
 ): string {
   const selected = selection?.type === 'state' && selection.id === state.id
   const connectSource = connectFromId === state.id
-  const isRunningState = runStateId === state.id
+  const isRunningState = runStateIds.has(state.id)
   const classes = ['state-node']
 
   if (selected) {
@@ -132,6 +132,7 @@ export function buildSvgMarkup(options: SvgSceneOptions): string {
   const viewBox = options.viewBox ?? `0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`
   const geometryMap = buildTransitionGeometries(options.states, options.transitions, formatTransitionLabel)
   const contentBounds = options.bounds ?? measureSceneBounds(options.states, geometryMap.values())
+  const runStateIds = new Set(options.runStateIds)
   const width = contentBounds.maxX - contentBounds.minX
   const height = contentBounds.maxY - contentBounds.minY
   const emptyState = options.states.length === 0
@@ -163,7 +164,7 @@ export function buildSvgMarkup(options: SvgSceneOptions): string {
     .join('')
 
   const stateLayer = options.states
-    .map((state) => renderState(state, options.selection, options.connectFromId, options.runStateId, options.interactive))
+    .map((state) => renderState(state, options.selection, options.connectFromId, runStateIds, options.interactive))
     .join('')
 
   return `
@@ -197,7 +198,7 @@ export function buildExportSvg(states: StateNode[], transitions: Transition[]): 
     transitions,
     selection: null,
     connectFromId: null,
-    runStateId: null,
+    runStateIds: [],
     showGrid: false,
     interactive: false,
     viewBox,
