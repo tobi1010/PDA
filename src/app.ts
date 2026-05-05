@@ -31,6 +31,8 @@ interface DragState {
   stateId: string
   offsetX: number
   offsetY: number
+  didMove: boolean
+  originSnapshot: EditorSnapshot
 }
 
 function displayWord(word: string): string {
@@ -39,6 +41,16 @@ function displayWord(word: string): string {
 
 function sliceWordSymbols(word: string, start: number, end?: number): string {
   return Array.from(word).slice(start, end).join('')
+}
+
+const HISTORY_LIMIT = 10
+
+interface EditorSnapshot {
+  states: StateNode[]
+  transitions: Transition[]
+  selection: Selection
+  connectFromId: string | null
+  mode: EditorMode
 }
 
 export class EditorApp {
@@ -51,6 +63,8 @@ export class EditorApp {
   private readonly stepButton: HTMLButtonElement
   private readonly resetRunButton: HTMLButtonElement
   private readonly runnerResultHost: HTMLDivElement
+  private readonly undoButton: HTMLButtonElement
+  private readonly redoButton: HTMLButtonElement
   private readonly selectButton: HTMLButtonElement
   private readonly addStateButton: HTMLButtonElement
   private readonly connectButton: HTMLButtonElement
@@ -73,6 +87,8 @@ export class EditorApp {
   private runnerWord = ''
   private runnerResult: SimulationResult | null = null
   private runnerStepIndex = -1
+  private undoHistory: EditorSnapshot[] = []
+  private redoHistory: EditorSnapshot[] = []
 
   public constructor(root: HTMLElement) {
     this.root = root
@@ -85,6 +101,8 @@ export class EditorApp {
             <button type="button" data-mode="connect">Connect</button>
           </div>
           <div class="toolbar-group toolbar-group--actions">
+            <button type="button" data-action="undo">Undo</button>
+            <button type="button" data-action="redo">Redo</button>
             <button type="button" data-action="load">Load JSON</button>
             <button type="button" data-action="save">Save JSON</button>
             <button type="button" data-action="delete">Delete selected</button>
@@ -132,6 +150,8 @@ export class EditorApp {
     this.stepButton = this.root.querySelector<HTMLButtonElement>('[data-action="step"]')!
     this.resetRunButton = this.root.querySelector<HTMLButtonElement>('[data-action="reset-run"]')!
     this.runnerResultHost = this.root.querySelector<HTMLDivElement>('.runner-result')!
+    this.undoButton = this.root.querySelector<HTMLButtonElement>('[data-action="undo"]')!
+    this.redoButton = this.root.querySelector<HTMLButtonElement>('[data-action="redo"]')!
     this.selectButton = this.root.querySelector<HTMLButtonElement>('[data-mode="select"]')!
     this.addStateButton = this.root.querySelector<HTMLButtonElement>('[data-mode="add-state"]')!
     this.connectButton = this.root.querySelector<HTMLButtonElement>('[data-mode="connect"]')!
@@ -149,6 +169,8 @@ export class EditorApp {
     this.selectButton.addEventListener('click', () => this.setMode('select'))
     this.addStateButton.addEventListener('click', () => this.setMode('add-state'))
     this.connectButton.addEventListener('click', () => this.setMode('connect'))
+    this.undoButton.addEventListener('click', () => this.undo())
+    this.redoButton.addEventListener('click', () => this.redo())
     this.loadButton.addEventListener('click', () => this.openJsonFilePicker())
     this.saveButton.addEventListener('click', () => this.saveJson())
     this.runButton.addEventListener('click', () => this.runFullSimulation())
@@ -205,6 +227,7 @@ export class EditorApp {
     this.renderToolbar()
     this.renderCanvas()
     this.renderInspector()
+    this.renderRunner()
     this.renderStatus()
   }
 
@@ -220,6 +243,8 @@ export class EditorApp {
     }
 
     const hasSelection = this.selection !== null
+    this.undoButton.disabled = this.undoHistory.length === 0
+    this.redoButton.disabled = this.redoHistory.length === 0
     this.deleteButton.disabled = !hasSelection
     this.runButton.disabled = this.states.length === 0
     this.stepButton.disabled = this.states.length === 0
@@ -306,30 +331,46 @@ export class EditorApp {
       const acceptInput = this.inspectorHost.querySelector<HTMLInputElement>('input[name="accept"]')!
 
       labelInput.addEventListener('input', () => {
-        state.label = labelInput.value.trim() || state.id
+        const nextLabel = labelInput.value.trim() || state.id
+
+        if (state.label === nextLabel) {
+          return
+        }
+
+        const previousSnapshot = this.captureSnapshot()
+        state.label = nextLabel
+        this.commitHistory(previousSnapshot)
         this.clearNotice()
         this.renderCanvas()
         this.renderStatus()
+        this.renderToolbar()
       })
 
       startInput.addEventListener('change', () => {
+        const previousSnapshot = this.captureSnapshot()
+
         for (const item of this.states) {
           item.isStart = false
         }
 
         state.isStart = startInput.checked
+        this.commitHistory(previousSnapshot)
         this.clearNotice()
         this.resetSimulationState()
         this.renderCanvas()
         this.renderRunner()
+        this.renderToolbar()
       })
 
       acceptInput.addEventListener('change', () => {
+        const previousSnapshot = this.captureSnapshot()
         state.isAccept = acceptInput.checked
+        this.commitHistory(previousSnapshot)
         this.clearNotice()
         this.resetSimulationState()
         this.renderCanvas()
         this.renderRunner()
+        this.renderToolbar()
       })
 
       return
@@ -378,11 +419,20 @@ export class EditorApp {
 
       const bindTransitionInput = (field: HTMLInputElement, key: 'input' | 'stackTop' | 'stackResult'): void => {
         field.addEventListener('input', () => {
-          transition[key] = field.value.trim()
+          const nextValue = field.value.trim()
+
+          if (transition[key] === nextValue) {
+            return
+          }
+
+          const previousSnapshot = this.captureSnapshot()
+          transition[key] = nextValue
+          this.commitHistory(previousSnapshot)
           this.clearNotice()
           this.resetSimulationState()
           this.renderCanvas()
           this.renderRunner()
+          this.renderToolbar()
           updateValidation()
         })
       }
@@ -511,11 +561,13 @@ export class EditorApp {
 
       const transitionId = this.createNextId('t', this.transitions.map(({ id }) => id), this.nextTransitionIndex)
       const transition = createTransition(transitionId, this.connectFromId, stateId)
+      const previousSnapshot = this.captureSnapshot()
 
       this.transitions = [...this.transitions, transition]
       this.nextTransitionIndex = this.parseTrailingNumber(transitionId, 't') + 1
       this.connectFromId = null
       this.selection = { type: 'transition', id: transition.id }
+      this.commitHistory(previousSnapshot)
       this.clearNotice()
       this.resetSimulationState()
       this.render()
@@ -547,7 +599,11 @@ export class EditorApp {
       stateId,
       offsetX: point.x - state.x,
       offsetY: point.y - state.y,
+      didMove: false,
+      originSnapshot: this.captureSnapshot(),
     }
+
+    this.render()
 
     const handleMouseMove = (moveEvent: MouseEvent): void => {
       if (!this.dragState) {
@@ -565,6 +621,13 @@ export class EditorApp {
         dragPoint.x - this.dragState.offsetX,
         dragPoint.y - this.dragState.offsetY,
       )
+      const activeState = this.states.find((item) => item.id === this.dragState?.stateId)
+
+      if (!activeState) {
+        return
+      }
+
+      this.dragState.didMove ||= activeState.x !== position.x || activeState.y !== position.y
 
       this.states = this.states.map((item) =>
         item.id === this.dragState?.stateId ? { ...item, x: position.x, y: position.y } : item,
@@ -576,9 +639,17 @@ export class EditorApp {
     }
 
     const handleMouseUp = (): void => {
+      const dragState = this.dragState
+
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+
+      if (dragState?.didMove) {
+        this.commitHistory(dragState.originSnapshot)
+      }
+
       this.dragState = null
+      this.renderToolbar()
       this.renderCanvas()
       this.renderStatus()
     }
@@ -593,16 +664,24 @@ export class EditorApp {
   private addState(x: number, y: number): void {
     const stateId = this.createNextId('q', this.states.map(({ id }) => id), this.nextStateIndex)
     const state = createState(stateId, stateId, x, y)
+    const previousSnapshot = this.captureSnapshot()
 
     this.nextStateIndex = this.parseTrailingNumber(stateId, 'q') + 1
     this.states = [...this.states, state]
     this.selection = { type: 'state', id: state.id }
+    this.commitHistory(previousSnapshot)
     this.clearNotice()
     this.resetSimulationState()
     this.render()
   }
 
   private deleteSelection(): void {
+    if (this.selection === null) {
+      return
+    }
+
+    const previousSnapshot = this.captureSnapshot()
+
     if (this.selection?.type === 'state') {
       const stateId = this.selection.id
       this.states = this.states.filter(({ id }) => id !== stateId)
@@ -621,6 +700,7 @@ export class EditorApp {
     }
 
     this.selection = null
+    this.commitHistory(previousSnapshot)
     this.clearNotice()
     this.resetSimulationState()
     this.render()
@@ -645,6 +725,7 @@ export class EditorApp {
 
     try {
       const document = parseAutomaton(await file.text())
+      const previousSnapshot = this.captureSnapshot()
       this.states = document.states
       this.transitions = document.transitions
       this.selection = null
@@ -653,6 +734,7 @@ export class EditorApp {
       this.mode = 'select'
       this.nextStateIndex = this.computeNextIndex(this.states.map(({ id }) => id), 'q')
       this.nextTransitionIndex = this.computeNextIndex(this.transitions.map(({ id }) => id), 't')
+      this.commitHistory(previousSnapshot)
       this.resetSimulationState()
       this.setNotice(`Loaded ${document.states.length} states and ${document.transitions.length} transitions from ${file.name}.`)
       this.render()
@@ -740,6 +822,74 @@ export class EditorApp {
   private clearNotice(): void {
     this.notice = null
     window.clearTimeout(this.noticeTimeout)
+  }
+
+  private undo(): void {
+    const snapshot = this.undoHistory.at(-1)
+
+    if (!snapshot) {
+      return
+    }
+
+    this.undoHistory = this.undoHistory.slice(0, -1)
+    this.redoHistory = this.pushHistoryEntry(this.redoHistory, this.captureSnapshot())
+    this.applySnapshot(snapshot)
+    this.clearNotice()
+    this.resetSimulationState()
+    this.render()
+  }
+
+  private redo(): void {
+    const snapshot = this.redoHistory.at(-1)
+
+    if (!snapshot) {
+      return
+    }
+
+    this.redoHistory = this.redoHistory.slice(0, -1)
+    this.undoHistory = this.pushHistoryEntry(this.undoHistory, this.captureSnapshot())
+    this.applySnapshot(snapshot)
+    this.clearNotice()
+    this.resetSimulationState()
+    this.render()
+  }
+
+  private captureSnapshot(): EditorSnapshot {
+    return {
+      states: this.states.map((state) => ({ ...state })),
+      transitions: this.transitions.map((transition) => ({ ...transition })),
+      selection: this.selection === null ? null : { ...this.selection },
+      connectFromId: this.connectFromId,
+      mode: this.mode,
+    }
+  }
+
+  private applySnapshot(snapshot: EditorSnapshot): void {
+    this.states = snapshot.states.map((state) => ({ ...state }))
+    this.transitions = snapshot.transitions.map((transition) => ({ ...transition }))
+    this.selection = snapshot.selection === null ? null : { ...snapshot.selection }
+    this.connectFromId = snapshot.connectFromId
+    this.mode = snapshot.mode
+    this.dragState = null
+    this.nextStateIndex = this.computeNextIndex(this.states.map(({ id }) => id), 'q')
+    this.nextTransitionIndex = this.computeNextIndex(this.transitions.map(({ id }) => id), 't')
+  }
+
+  private commitHistory(previousSnapshot: EditorSnapshot): void {
+    if (this.snapshotsMatch(previousSnapshot, this.captureSnapshot())) {
+      return
+    }
+
+    this.undoHistory = this.pushHistoryEntry(this.undoHistory, previousSnapshot)
+    this.redoHistory = []
+  }
+
+  private pushHistoryEntry(history: EditorSnapshot[], snapshot: EditorSnapshot): EditorSnapshot[] {
+    return [...history, snapshot].slice(-HISTORY_LIMIT)
+  }
+
+  private snapshotsMatch(left: EditorSnapshot, right: EditorSnapshot): boolean {
+    return JSON.stringify(left) === JSON.stringify(right)
   }
 
   private computeNextIndex(ids: string[], prefix: string): number {
