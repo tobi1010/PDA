@@ -216,7 +216,7 @@ export function buildExportSvg(states: StateNode[], transitions: Transition[]): 
         .state-label,.transition-label{font-family:Inter,system-ui,sans-serif;font-size:15px;fill:#0f172a}
         .start-arrow,.transition-path{fill:none;stroke:#334155;stroke-width:2.5}
         .transition-hit{fill:none;stroke:none}
-        .transition-label-bg{fill:rgba(255,255,255,.92);stroke:#cbd5e1;stroke-width:1}
+        .transition-label-bg{fill:#fff;stroke:#cbd5e1;stroke-width:1}
       </style></svg>`,
     )
 }

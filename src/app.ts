@@ -1,13 +1,10 @@
-import './style.css'
-import { downloadAutomatonJson, parseAutomaton } from './persistence'
-import { simulateWord, type SimulationResult } from './simulator'
-import { buildSvgMarkup } from './svgScene'
-import { downloadAutomatonSvg } from './svgExport'
+import "./style.css";
+import { downloadAutomatonJson, parseAutomaton } from "./persistence";
+import { simulateWord, type SimulationResult } from "./simulator";
+import { buildSvgMarkup } from "./svgScene";
+import { downloadAutomatonSvg } from "./svgExport";
 import {
-  CANVAS_HEIGHT,
-  CANVAS_WIDTH,
   EPSILON_TOKEN,
-  GRID_SIZE,
   clampStatePosition,
   createState,
   createTransition,
@@ -17,88 +14,88 @@ import {
   type StateNode,
   type Transition,
   validateTransition,
-} from './model'
+} from "./model";
 
 function escapeAttribute(value: string): string {
   return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 interface DragState {
-  stateId: string
-  offsetX: number
-  offsetY: number
-  didMove: boolean
-  originSnapshot: EditorSnapshot
+  stateId: string;
+  offsetX: number;
+  offsetY: number;
+  didMove: boolean;
+  originSnapshot: EditorSnapshot;
 }
 
 function displayWord(word: string): string {
-  return word.length === 0 ? 'ε' : word
+  return word.length === 0 ? "ε" : word;
 }
 
 function sliceWordSymbols(word: string, start: number, end?: number): string {
-  return Array.from(word).slice(start, end).join('')
+  return Array.from(word).slice(start, end).join("");
 }
 
-const HISTORY_LIMIT = 10
+const HISTORY_LIMIT = 10;
 
 interface EditorSnapshot {
-  states: StateNode[]
-  transitions: Transition[]
-  selection: Selection
-  connectFromId: string | null
-  mode: EditorMode
+  states: StateNode[];
+  transitions: Transition[];
+  selection: Selection;
+  connectFromId: string | null;
+  mode: EditorMode;
 }
 
 export class EditorApp {
-  private readonly root: HTMLElement
-  private readonly canvasHost: HTMLDivElement
-  private readonly inspectorHost: HTMLDivElement
-  private readonly statusHost: HTMLParagraphElement
-  private readonly runnerInput: HTMLInputElement
-  private readonly runButton: HTMLButtonElement
-  private readonly stepButton: HTMLButtonElement
-  private readonly resetRunButton: HTMLButtonElement
-  private readonly runnerResultHost: HTMLDivElement
-  private readonly undoButton: HTMLButtonElement
-  private readonly redoButton: HTMLButtonElement
-  private readonly selectButton: HTMLButtonElement
-  private readonly addStateButton: HTMLButtonElement
-  private readonly connectButton: HTMLButtonElement
-  private readonly loadButton: HTMLButtonElement
-  private readonly saveButton: HTMLButtonElement
-  private readonly deleteButton: HTMLButtonElement
-  private readonly exportButton: HTMLButtonElement
-  private readonly fileInput: HTMLInputElement
+  private readonly root: HTMLElement;
+  private readonly canvasHost: HTMLDivElement;
+  private readonly inspectorHost: HTMLDivElement;
+  private readonly statusHost: HTMLParagraphElement;
+  private readonly runnerInput: HTMLInputElement;
+  private readonly runButton: HTMLButtonElement;
+  private readonly stepButton: HTMLButtonElement;
+  private readonly resetRunButton: HTMLButtonElement;
+  private readonly runnerResultHost: HTMLDivElement;
+  private readonly undoButton: HTMLButtonElement;
+  private readonly redoButton: HTMLButtonElement;
+  private readonly selectButton: HTMLButtonElement;
+  private readonly addStateButton: HTMLButtonElement;
+  private readonly connectButton: HTMLButtonElement;
+  private readonly loadButton: HTMLButtonElement;
+  private readonly saveButton: HTMLButtonElement;
+  private readonly deleteButton: HTMLButtonElement;
+  private readonly exportButton: HTMLButtonElement;
+  private readonly fileInput: HTMLInputElement;
 
-  private states: StateNode[] = []
-  private transitions: Transition[] = []
-  private selection: Selection = null
-  private mode: EditorMode = 'select'
-  private connectFromId: string | null = null
-  private nextStateIndex = 0
-  private nextTransitionIndex = 0
-  private dragState: DragState | null = null
-  private notice: string | null = null
-  private noticeTimeout = 0
-  private runnerWord = ''
-  private runnerResult: SimulationResult | null = null
-  private runnerStepIndex = -1
-  private undoHistory: EditorSnapshot[] = []
-  private redoHistory: EditorSnapshot[] = []
+  private states: StateNode[] = [];
+  private transitions: Transition[] = [];
+  private selection: Selection = null;
+  private mode: EditorMode = "select";
+  private connectFromId: string | null = null;
+  private nextStateIndex = 0;
+  private nextTransitionIndex = 0;
+  private dragState: DragState | null = null;
+  private notice: string | null = null;
+  private noticeTimeout = 0;
+  private runnerWord = "";
+  private runnerResult: SimulationResult | null = null;
+  private runnerStepIndex = -1;
+  private undoHistory: EditorSnapshot[] = [];
+  private redoHistory: EditorSnapshot[] = [];
 
   public constructor(root: HTMLElement) {
-    this.root = root
+    this.root = root;
     this.root.innerHTML = `
       <div class="app-shell">
         <header class="toolbar">
           <div class="toolbar-group">
-            <button type="button" data-mode="select">Select</button>
             <button type="button" data-mode="add-state">Add state</button>
             <button type="button" data-mode="connect">Connect</button>
+            <button type="button" data-mode="select">Select</button>
           </div>
           <div class="toolbar-group toolbar-group--actions">
             <button type="button" data-action="undo">Undo</button>
@@ -113,10 +110,8 @@ export class EditorApp {
           <section class="canvas-panel">
             <div class="canvas-heading">
               <div>
-                <h1>pda</h1>
-                <p>Grid-snapped draggable states, editable transitions, JSON save/load, simulation, and standalone SVG export.</p>
+                <h1>Pushdown Automaton Editor</h1>
               </div>
-              <p class="canvas-meta">Canvas ${CANVAS_WIDTH} × ${CANVAS_HEIGHT}, grid ${GRID_SIZE}px</p>
             </div>
             <div class="runner-panel">
               <label class="runner-field">
@@ -140,116 +135,151 @@ export class EditorApp {
           </aside>
         </main>
         <input class="file-input" type="file" accept="application/json,.json" />
-      </div>`
+      </div>`;
 
-    this.canvasHost = this.root.querySelector<HTMLDivElement>('.canvas-host')!
-    this.inspectorHost = this.root.querySelector<HTMLDivElement>('.inspector-host')!
-    this.statusHost = this.root.querySelector<HTMLParagraphElement>('.status-line')!
-    this.runnerInput = this.root.querySelector<HTMLInputElement>('[data-runner-input]')!
-    this.runButton = this.root.querySelector<HTMLButtonElement>('[data-action="run"]')!
-    this.stepButton = this.root.querySelector<HTMLButtonElement>('[data-action="step"]')!
-    this.resetRunButton = this.root.querySelector<HTMLButtonElement>('[data-action="reset-run"]')!
-    this.runnerResultHost = this.root.querySelector<HTMLDivElement>('.runner-result')!
-    this.undoButton = this.root.querySelector<HTMLButtonElement>('[data-action="undo"]')!
-    this.redoButton = this.root.querySelector<HTMLButtonElement>('[data-action="redo"]')!
-    this.selectButton = this.root.querySelector<HTMLButtonElement>('[data-mode="select"]')!
-    this.addStateButton = this.root.querySelector<HTMLButtonElement>('[data-mode="add-state"]')!
-    this.connectButton = this.root.querySelector<HTMLButtonElement>('[data-mode="connect"]')!
-    this.loadButton = this.root.querySelector<HTMLButtonElement>('[data-action="load"]')!
-    this.saveButton = this.root.querySelector<HTMLButtonElement>('[data-action="save"]')!
-    this.deleteButton = this.root.querySelector<HTMLButtonElement>('[data-action="delete"]')!
-    this.exportButton = this.root.querySelector<HTMLButtonElement>('[data-action="export"]')!
-    this.fileInput = this.root.querySelector<HTMLInputElement>('.file-input')!
+    this.canvasHost = this.root.querySelector<HTMLDivElement>(".canvas-host")!;
+    this.inspectorHost =
+      this.root.querySelector<HTMLDivElement>(".inspector-host")!;
+    this.statusHost =
+      this.root.querySelector<HTMLParagraphElement>(".status-line")!;
+    this.runnerInput = this.root.querySelector<HTMLInputElement>(
+      "[data-runner-input]",
+    )!;
+    this.runButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="run"]',
+    )!;
+    this.stepButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="step"]',
+    )!;
+    this.resetRunButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="reset-run"]',
+    )!;
+    this.runnerResultHost =
+      this.root.querySelector<HTMLDivElement>(".runner-result")!;
+    this.undoButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="undo"]',
+    )!;
+    this.redoButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="redo"]',
+    )!;
+    this.selectButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-mode="select"]',
+    )!;
+    this.addStateButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-mode="add-state"]',
+    )!;
+    this.connectButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-mode="connect"]',
+    )!;
+    this.loadButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="load"]',
+    )!;
+    this.saveButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="save"]',
+    )!;
+    this.deleteButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="delete"]',
+    )!;
+    this.exportButton = this.root.querySelector<HTMLButtonElement>(
+      '[data-action="export"]',
+    )!;
+    this.fileInput = this.root.querySelector<HTMLInputElement>(".file-input")!;
 
-    this.bindStaticEvents()
-    this.render()
+    this.bindStaticEvents();
+    this.render();
   }
 
   private bindStaticEvents(): void {
-    this.selectButton.addEventListener('click', () => this.setMode('select'))
-    this.addStateButton.addEventListener('click', () => this.setMode('add-state'))
-    this.connectButton.addEventListener('click', () => this.setMode('connect'))
-    this.undoButton.addEventListener('click', () => this.undo())
-    this.redoButton.addEventListener('click', () => this.redo())
-    this.loadButton.addEventListener('click', () => this.openJsonFilePicker())
-    this.saveButton.addEventListener('click', () => this.saveJson())
-    this.runButton.addEventListener('click', () => this.runFullSimulation())
-    this.stepButton.addEventListener('click', () => this.stepSimulation())
-    this.resetRunButton.addEventListener('click', () => this.resetSimulation())
-    this.deleteButton.addEventListener('click', () => this.deleteSelection())
-    this.exportButton.addEventListener('click', () => this.exportSvg())
-    this.runnerInput.addEventListener('input', () => {
-      this.runnerWord = this.runnerInput.value
-      this.resetSimulationState()
-      this.renderRunner()
-      this.renderCanvas()
-    })
-    this.runnerInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        this.runFullSimulation()
+    this.selectButton.addEventListener("click", () => this.setMode("select"));
+    this.addStateButton.addEventListener("click", () =>
+      this.setMode("add-state"),
+    );
+    this.connectButton.addEventListener("click", () => this.setMode("connect"));
+    this.undoButton.addEventListener("click", () => this.undo());
+    this.redoButton.addEventListener("click", () => this.redo());
+    this.loadButton.addEventListener("click", () => this.openJsonFilePicker());
+    this.saveButton.addEventListener("click", () => this.saveJson());
+    this.runButton.addEventListener("click", () => this.runFullSimulation());
+    this.stepButton.addEventListener("click", () => this.stepSimulation());
+    this.resetRunButton.addEventListener("click", () => this.resetSimulation());
+    this.deleteButton.addEventListener("click", () => this.deleteSelection());
+    this.exportButton.addEventListener("click", () => this.exportSvg());
+    this.runnerInput.addEventListener("input", () => {
+      this.runnerWord = this.runnerInput.value;
+      this.resetSimulationState();
+      this.renderRunner();
+      this.renderCanvas();
+    });
+    this.runnerInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.runFullSimulation();
       }
-    })
-    this.fileInput.addEventListener('change', () => {
-      void this.handleFileSelection()
-    })
+    });
+    this.fileInput.addEventListener("change", () => {
+      void this.handleFileSelection();
+    });
 
-    window.addEventListener('keydown', (event) => {
-      if (event.key === 'Delete' || event.key === 'Backspace') {
-        const target = event.target
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Delete" || event.key === "Backspace") {
+        const target = event.target;
 
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-          return
+        if (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement
+        ) {
+          return;
         }
 
-        event.preventDefault()
-        this.deleteSelection()
+        event.preventDefault();
+        this.deleteSelection();
       }
 
-      if (event.key === 'Escape') {
-        this.connectFromId = null
-        this.setMode('select')
+      if (event.key === "Escape") {
+        this.connectFromId = null;
+        this.setMode("select");
       }
-    })
+    });
   }
 
   private setMode(mode: EditorMode): void {
-    this.mode = mode
+    this.mode = mode;
 
-    if (mode !== 'connect') {
-      this.connectFromId = null
+    if (mode !== "connect") {
+      this.connectFromId = null;
     }
 
-    this.render()
+    this.render();
   }
 
   private render(): void {
-    this.renderToolbar()
-    this.renderCanvas()
-    this.renderInspector()
-    this.renderRunner()
-    this.renderStatus()
+    this.renderToolbar();
+    this.renderCanvas();
+    this.renderInspector();
+    this.renderRunner();
+    this.renderStatus();
   }
 
   private renderToolbar(): void {
     const modeButtons = [
-      [this.selectButton, 'select'],
-      [this.addStateButton, 'add-state'],
-      [this.connectButton, 'connect'],
-    ] as const
+      [this.selectButton, "select"],
+      [this.addStateButton, "add-state"],
+      [this.connectButton, "connect"],
+    ] as const;
 
     for (const [button, mode] of modeButtons) {
-      button.classList.toggle('is-active', this.mode === mode)
+      button.classList.toggle("is-active", this.mode === mode);
     }
 
-    const hasSelection = this.selection !== null
-    this.undoButton.disabled = this.undoHistory.length === 0
-    this.redoButton.disabled = this.redoHistory.length === 0
-    this.deleteButton.disabled = !hasSelection
-    this.runButton.disabled = this.states.length === 0
-    this.stepButton.disabled = this.states.length === 0
-    this.resetRunButton.disabled = this.runnerResult === null && this.runnerStepIndex < 0
-    this.exportButton.disabled = this.states.length === 0
+    const hasSelection = this.selection !== null;
+    this.undoButton.disabled = this.undoHistory.length === 0;
+    this.redoButton.disabled = this.redoHistory.length === 0;
+    this.deleteButton.disabled = !hasSelection;
+    this.runButton.disabled = this.states.length === 0;
+    this.stepButton.disabled = this.states.length === 0;
+    this.resetRunButton.disabled =
+      this.runnerResult === null && this.runnerStepIndex < 0;
+    this.exportButton.disabled = this.states.length === 0;
   }
 
   private renderCanvas(): void {
@@ -261,52 +291,64 @@ export class EditorApp {
       runStateId: this.getCurrentRunStateId(),
       showGrid: true,
       interactive: true,
-    })
+    });
 
-    const svg = this.canvasHost.querySelector<SVGSVGElement>('svg')
+    const svg = this.canvasHost.querySelector<SVGSVGElement>("svg");
 
     if (!svg) {
-      return
+      return;
     }
 
-    const hitbox = svg.querySelector<SVGRectElement>('[data-canvas-hitbox="true"]')
-    hitbox?.addEventListener('click', (event) => this.handleCanvasClick(event, svg))
+    const hitbox = svg.querySelector<SVGRectElement>(
+      '[data-canvas-hitbox="true"]',
+    );
+    hitbox?.addEventListener("click", (event) =>
+      this.handleCanvasClick(event, svg),
+    );
 
-    for (const stateElement of svg.querySelectorAll<SVGGElement>('[data-state-id]')) {
-      const stateId = stateElement.dataset.stateId
+    for (const stateElement of svg.querySelectorAll<SVGGElement>(
+      "[data-state-id]",
+    )) {
+      const stateId = stateElement.dataset.stateId;
 
       if (!stateId) {
-        continue
+        continue;
       }
 
-      stateElement.addEventListener('click', (event) => this.handleStateClick(event, stateId))
-      stateElement.addEventListener('mousedown', (event) => this.handleStateMouseDown(event, stateId, svg))
+      stateElement.addEventListener("click", (event) =>
+        this.handleStateClick(event, stateId),
+      );
+      stateElement.addEventListener("mousedown", (event) =>
+        this.handleStateMouseDown(event, stateId, svg),
+      );
     }
 
-    for (const transitionElement of svg.querySelectorAll<SVGGElement>('[data-transition-id]')) {
-      const transitionId = transitionElement.dataset.transitionId
+    for (const transitionElement of svg.querySelectorAll<SVGGElement>(
+      "[data-transition-id]",
+    )) {
+      const transitionId = transitionElement.dataset.transitionId;
 
       if (!transitionId) {
-        continue
+        continue;
       }
 
-      transitionElement.addEventListener('click', (event) => {
-        event.stopPropagation()
-        this.selection = { type: 'transition', id: transitionId }
-        this.render()
-      })
+      transitionElement.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.selection = { type: "transition", id: transitionId };
+        this.render();
+      });
     }
   }
 
   private renderInspector(): void {
-    if (this.selection?.type === 'state') {
-      const selection = this.selection
-      const state = this.states.find(({ id }) => id === selection.id)
+    if (this.selection?.type === "state") {
+      const selection = this.selection;
+      const state = this.states.find(({ id }) => id === selection.id);
 
       if (!state) {
-        this.selection = null
-        this.renderInspector()
-        return
+        this.selection = null;
+        this.renderInspector();
+        return;
       }
 
       this.inspectorHost.innerHTML = `
@@ -317,73 +359,79 @@ export class EditorApp {
             <input type="text" name="label" value="${escapeAttribute(state.label)}" maxlength="12" />
           </label>
           <label class="toggle-row">
-            <input type="checkbox" name="start" ${state.isStart ? 'checked' : ''} />
+            <input type="checkbox" name="start" ${state.isStart ? "checked" : ""} />
             <span>Start state</span>
           </label>
           <label class="toggle-row">
-            <input type="checkbox" name="accept" ${state.isAccept ? 'checked' : ''} />
+            <input type="checkbox" name="accept" ${state.isAccept ? "checked" : ""} />
             <span>Accept state</span>
           </label>
-        </section>`
+        </section>`;
 
-      const labelInput = this.inspectorHost.querySelector<HTMLInputElement>('input[name="label"]')!
-      const startInput = this.inspectorHost.querySelector<HTMLInputElement>('input[name="start"]')!
-      const acceptInput = this.inspectorHost.querySelector<HTMLInputElement>('input[name="accept"]')!
+      const labelInput = this.inspectorHost.querySelector<HTMLInputElement>(
+        'input[name="label"]',
+      )!;
+      const startInput = this.inspectorHost.querySelector<HTMLInputElement>(
+        'input[name="start"]',
+      )!;
+      const acceptInput = this.inspectorHost.querySelector<HTMLInputElement>(
+        'input[name="accept"]',
+      )!;
 
-      labelInput.addEventListener('input', () => {
-        const nextLabel = labelInput.value.trim() || state.id
+      labelInput.addEventListener("input", () => {
+        const nextLabel = labelInput.value.trim() || state.id;
 
         if (state.label === nextLabel) {
-          return
+          return;
         }
 
-        const previousSnapshot = this.captureSnapshot()
-        state.label = nextLabel
-        this.commitHistory(previousSnapshot)
-        this.clearNotice()
-        this.renderCanvas()
-        this.renderStatus()
-        this.renderToolbar()
-      })
+        const previousSnapshot = this.captureSnapshot();
+        state.label = nextLabel;
+        this.commitHistory(previousSnapshot);
+        this.clearNotice();
+        this.renderCanvas();
+        this.renderStatus();
+        this.renderToolbar();
+      });
 
-      startInput.addEventListener('change', () => {
-        const previousSnapshot = this.captureSnapshot()
+      startInput.addEventListener("change", () => {
+        const previousSnapshot = this.captureSnapshot();
 
         for (const item of this.states) {
-          item.isStart = false
+          item.isStart = false;
         }
 
-        state.isStart = startInput.checked
-        this.commitHistory(previousSnapshot)
-        this.clearNotice()
-        this.resetSimulationState()
-        this.renderCanvas()
-        this.renderRunner()
-        this.renderToolbar()
-      })
+        state.isStart = startInput.checked;
+        this.commitHistory(previousSnapshot);
+        this.clearNotice();
+        this.resetSimulationState();
+        this.renderCanvas();
+        this.renderRunner();
+        this.renderToolbar();
+      });
 
-      acceptInput.addEventListener('change', () => {
-        const previousSnapshot = this.captureSnapshot()
-        state.isAccept = acceptInput.checked
-        this.commitHistory(previousSnapshot)
-        this.clearNotice()
-        this.resetSimulationState()
-        this.renderCanvas()
-        this.renderRunner()
-        this.renderToolbar()
-      })
+      acceptInput.addEventListener("change", () => {
+        const previousSnapshot = this.captureSnapshot();
+        state.isAccept = acceptInput.checked;
+        this.commitHistory(previousSnapshot);
+        this.clearNotice();
+        this.resetSimulationState();
+        this.renderCanvas();
+        this.renderRunner();
+        this.renderToolbar();
+      });
 
-      return
+      return;
     }
 
-    if (this.selection?.type === 'transition') {
-      const selection = this.selection
-      const transition = this.transitions.find(({ id }) => id === selection.id)
+    if (this.selection?.type === "transition") {
+      const selection = this.selection;
+      const transition = this.transitions.find(({ id }) => id === selection.id);
 
       if (!transition) {
-        this.selection = null
-        this.renderInspector()
-        return
+        this.selection = null;
+        this.renderInspector();
+        return;
       }
 
       this.inspectorHost.innerHTML = `
@@ -403,46 +451,60 @@ export class EditorApp {
           </label>
           <p class="inspector-help">Use one character or <code>${EPSILON_TOKEN}</code>. <code>$</code> is only valid in stack fields.</p>
           <div class="validation-list"></div>
-        </section>`
+        </section>`;
 
-      const inputField = this.inspectorHost.querySelector<HTMLInputElement>('input[name="input"]')!
-      const stackTopField = this.inspectorHost.querySelector<HTMLInputElement>('input[name="stackTop"]')!
-      const stackResultField = this.inspectorHost.querySelector<HTMLInputElement>('input[name="stackResult"]')!
-      const validationHost = this.inspectorHost.querySelector<HTMLDivElement>('.validation-list')!
+      const inputField = this.inspectorHost.querySelector<HTMLInputElement>(
+        'input[name="input"]',
+      )!;
+      const stackTopField = this.inspectorHost.querySelector<HTMLInputElement>(
+        'input[name="stackTop"]',
+      )!;
+      const stackResultField =
+        this.inspectorHost.querySelector<HTMLInputElement>(
+          'input[name="stackResult"]',
+        )!;
+      const validationHost =
+        this.inspectorHost.querySelector<HTMLDivElement>(".validation-list")!;
 
       const updateValidation = (): void => {
-        const errors = validateTransition(transition)
-        validationHost.innerHTML = errors.length === 0
-          ? '<p class="validation-ok">Transition is valid.</p>'
-          : errors.map((error) => `<p class="validation-error">${error}</p>`).join('')
-      }
+        const errors = validateTransition(transition);
+        validationHost.innerHTML =
+          errors.length === 0
+            ? '<p class="validation-ok">Transition is valid.</p>'
+            : errors
+                .map((error) => `<p class="validation-error">${error}</p>`)
+                .join("");
+      };
 
-      const bindTransitionInput = (field: HTMLInputElement, key: 'input' | 'stackTop' | 'stackResult'): void => {
-        field.addEventListener('input', () => {
-          const nextValue = field.value.trim()
+      const bindTransitionInput = (
+        field: HTMLInputElement,
+        key: "input" | "stackTop" | "stackResult",
+      ): void => {
+        field.addEventListener("input", () => {
+          const nextValue = field.value.trim();
 
           if (transition[key] === nextValue) {
-            return
+            return;
           }
 
-          const previousSnapshot = this.captureSnapshot()
-          transition[key] = nextValue
-          this.commitHistory(previousSnapshot)
-          this.clearNotice()
-          this.resetSimulationState()
-          this.renderCanvas()
-          this.renderRunner()
-          this.renderToolbar()
-          updateValidation()
-        })
-      }
+          const previousSnapshot = this.captureSnapshot();
+          transition[key] = nextValue;
+          this.commitHistory(previousSnapshot);
+          this.clearNotice();
+          this.resetSimulationState();
+          this.renderCanvas();
+          this.renderRunner();
+          this.renderToolbar();
+          updateValidation();
+        });
+      };
 
-      bindTransitionInput(inputField, 'input')
-      bindTransitionInput(stackTopField, 'stackTop')
-      bindTransitionInput(stackResultField, 'stackResult')
-      updateValidation()
+      bindTransitionInput(inputField, "input");
+      bindTransitionInput(stackTopField, "stackTop");
+      bindTransitionInput(stackResultField, "stackResult");
+      updateValidation();
 
-      return
+      return;
     }
 
     this.inspectorHost.innerHTML = `
@@ -457,401 +519,467 @@ export class EditorApp {
           <li>Export SVG saves only the automaton, without the grid.</li>
           <li>Load and save JSON keep the automaton on disk.</li>
         </ul>
-      </section>`
+      </section>`;
   }
 
   private renderRunner(): void {
-    this.runnerInput.value = this.runnerWord
+    this.runnerInput.value = this.runnerWord;
 
     if (this.runnerResult === null) {
-      this.runnerResultHost.className = 'runner-result runner-result--idle'
-      this.runnerResultHost.innerHTML = `<p>Enter a word and choose <strong>Run full</strong> or <strong>Step</strong>. Empty input is treated as ε.</p>`
-      return
+      this.runnerResultHost.className = "runner-result runner-result--idle";
+      this.runnerResultHost.innerHTML = `<p>Enter a word and choose <strong>Run full</strong> or <strong>Step</strong>. Empty input is treated as ε.</p>`;
+      return;
     }
 
-    const statusClass = `runner-result runner-result--${this.runnerResult.status}`
-    const baseLine = `<p class="runner-result-title">${this.runnerResult.message}</p>`
-    const summaryLine = `<p class="runner-result-meta">Input: <code>${escapeAttribute(displayWord(this.runnerWord))}</code> · Explored configurations: ${this.runnerResult.explored}</p>`
+    const statusClass = `runner-result runner-result--${this.runnerResult.status}`;
+    const baseLine = `<p class="runner-result-title">${this.runnerResult.message}</p>`;
+    const summaryLine = `<p class="runner-result-meta">Input: <code>${escapeAttribute(displayWord(this.runnerWord))}</code> · Explored configurations: ${this.runnerResult.explored}</p>`;
 
-    if (this.runnerResult.status === 'accepted' && this.runnerStepIndex >= 0) {
-      const traceStep = this.runnerResult.trace[this.runnerStepIndex]
-      const state = this.states.find(({ id }) => id === traceStep.stateId)
-      const transition = traceStep.transitionId === null
-        ? null
-        : this.transitions.find(({ id }) => id === traceStep.transitionId) ?? null
-      const consumed = displayWord(sliceWordSymbols(this.runnerWord, 0, traceStep.inputIndex))
-      const remaining = displayWord(sliceWordSymbols(this.runnerWord, traceStep.inputIndex))
-      const stack = traceStep.stack.length === 0 ? '∅' : traceStep.stack.join(' ')
-      const stepLine = `<p class="runner-result-meta">Step ${this.runnerStepIndex + 1}/${this.runnerResult.trace.length}: <strong>${escapeAttribute(state?.label ?? traceStep.stateId)}</strong> · consumed <code>${escapeAttribute(consumed)}</code> · remaining <code>${escapeAttribute(remaining)}</code> · stack <code>${escapeAttribute(stack)}</code></p>`
+    if (this.runnerResult.status === "accepted" && this.runnerStepIndex >= 0) {
+      const traceStep = this.runnerResult.trace[this.runnerStepIndex];
+      const state = this.states.find(({ id }) => id === traceStep.stateId);
+      const transition =
+        traceStep.transitionId === null
+          ? null
+          : (this.transitions.find(({ id }) => id === traceStep.transitionId) ??
+            null);
+      const consumed = displayWord(
+        sliceWordSymbols(this.runnerWord, 0, traceStep.inputIndex),
+      );
+      const remaining = displayWord(
+        sliceWordSymbols(this.runnerWord, traceStep.inputIndex),
+      );
+      const stack =
+        traceStep.stack.length === 0 ? "∅" : traceStep.stack.join(" ");
+      const stepLine = `<p class="runner-result-meta">Step ${this.runnerStepIndex + 1}/${this.runnerResult.trace.length}: <strong>${escapeAttribute(state?.label ?? traceStep.stateId)}</strong> · consumed <code>${escapeAttribute(consumed)}</code> · remaining <code>${escapeAttribute(remaining)}</code> · stack <code>${escapeAttribute(stack)}</code></p>`;
       const transitionLine = transition
         ? `<p class="runner-result-meta">via <code>${escapeAttribute(transition.id)}</code> = <code>${escapeAttribute(formatTransitionLabel(transition))}</code></p>`
-        : '<p class="runner-result-meta">Start configuration.</p>'
+        : '<p class="runner-result-meta">Start configuration.</p>';
 
-      this.runnerResultHost.className = statusClass
-      this.runnerResultHost.innerHTML = `${baseLine}${summaryLine}${stepLine}${transitionLine}`
-      return
+      this.runnerResultHost.className = statusClass;
+      this.runnerResultHost.innerHTML = `${baseLine}${summaryLine}${stepLine}${transitionLine}`;
+      return;
     }
 
-    this.runnerResultHost.className = statusClass
-    this.runnerResultHost.innerHTML = `${baseLine}${summaryLine}`
+    this.runnerResultHost.className = statusClass;
+    this.runnerResultHost.innerHTML = `${baseLine}${summaryLine}`;
   }
 
   private renderStatus(): void {
     if (this.notice !== null) {
-      this.statusHost.textContent = this.notice
-      return
+      this.statusHost.textContent = this.notice;
+      return;
     }
 
-    if (this.mode === 'add-state') {
-      this.statusHost.textContent = 'Add state mode: click the canvas to place a new state on the grid.'
-      return
+    if (this.mode === "add-state") {
+      this.statusHost.textContent =
+        "Add state mode: click the canvas to place a new state on the grid.";
+      return;
     }
 
-    if (this.mode === 'connect') {
+    if (this.mode === "connect") {
       this.statusHost.textContent = this.connectFromId
-        ? 'Connect mode: choose the target state to create a transition.'
-        : 'Connect mode: choose the source state.'
-      return
+        ? "Connect mode: choose the target state to create a transition."
+        : "Connect mode: choose the source state.";
+      return;
     }
 
-    if (this.selection?.type === 'state') {
-      const selection = this.selection
-      const state = this.states.find(({ id }) => id === selection.id)
+    if (this.selection?.type === "state") {
+      const selection = this.selection;
+      const state = this.states.find(({ id }) => id === selection.id);
       this.statusHost.textContent = state
         ? `Selected state ${state.label}. Drag it to a new grid position.`
-        : 'Select a state or transition.'
-      return
+        : "Select a state or transition.";
+      return;
     }
 
-    if (this.selection?.type === 'transition') {
-      this.statusHost.textContent = 'Selected transition. Edit its three single-symbol fields in the inspector.'
-      return
+    if (this.selection?.type === "transition") {
+      this.statusHost.textContent =
+        "Selected transition. Edit its three single-symbol fields in the inspector.";
+      return;
     }
 
-    this.statusHost.textContent = 'Select mode: drag states, edit the inspector, or switch to connect mode.'
+    this.statusHost.textContent =
+      "Select mode: drag states, edit the inspector, or switch to connect mode.";
   }
 
   private handleCanvasClick(event: MouseEvent, svg: SVGSVGElement): void {
-    if (this.mode === 'add-state') {
-      const point = this.clientToSvgPoint(event, svg)
-      this.addState(point.x, point.y)
-      return
+    if (this.mode === "add-state") {
+      const point = this.clientToSvgPoint(event, svg);
+      this.addState(point.x, point.y);
+      return;
     }
 
-    if (this.mode === 'connect') {
-      this.connectFromId = null
-      this.render()
-      return
+    if (this.mode === "connect") {
+      this.connectFromId = null;
+      this.render();
+      return;
     }
 
-    this.selection = null
-    this.render()
+    this.selection = null;
+    this.render();
   }
 
   private handleStateClick(event: MouseEvent, stateId: string): void {
-    event.stopPropagation()
+    event.stopPropagation();
 
-    if (this.mode === 'connect') {
+    if (this.mode === "connect") {
       if (this.connectFromId === null) {
-        this.connectFromId = stateId
-        this.selection = { type: 'state', id: stateId }
-        this.render()
-        return
+        this.connectFromId = stateId;
+        this.selection = { type: "state", id: stateId };
+        this.render();
+        return;
       }
 
-      const transitionId = this.createNextId('t', this.transitions.map(({ id }) => id), this.nextTransitionIndex)
-      const transition = createTransition(transitionId, this.connectFromId, stateId)
-      const previousSnapshot = this.captureSnapshot()
+      const transitionId = this.createNextId(
+        "t",
+        this.transitions.map(({ id }) => id),
+        this.nextTransitionIndex,
+      );
+      const transition = createTransition(
+        transitionId,
+        this.connectFromId,
+        stateId,
+      );
+      const previousSnapshot = this.captureSnapshot();
 
-      this.transitions = [...this.transitions, transition]
-      this.nextTransitionIndex = this.parseTrailingNumber(transitionId, 't') + 1
-      this.connectFromId = null
-      this.selection = { type: 'transition', id: transition.id }
-      this.commitHistory(previousSnapshot)
-      this.clearNotice()
-      this.resetSimulationState()
-      this.render()
-      return
+      this.transitions = [...this.transitions, transition];
+      this.nextTransitionIndex =
+        this.parseTrailingNumber(transitionId, "t") + 1;
+      this.connectFromId = null;
+      this.selection = { type: "transition", id: transition.id };
+      this.commitHistory(previousSnapshot);
+      this.clearNotice();
+      this.resetSimulationState();
+      this.render();
+      return;
     }
 
-    this.selection = { type: 'state', id: stateId }
-    this.render()
+    this.selection = { type: "state", id: stateId };
+    this.render();
   }
 
-  private handleStateMouseDown(event: MouseEvent, stateId: string, svg: SVGSVGElement): void {
-    if (event.button !== 0 || this.mode !== 'select') {
-      return
+  private handleStateMouseDown(
+    event: MouseEvent,
+    stateId: string,
+    svg: SVGSVGElement,
+  ): void {
+    if (event.button !== 0 || this.mode !== "select") {
+      return;
     }
 
-    event.preventDefault()
-    event.stopPropagation()
+    event.preventDefault();
+    event.stopPropagation();
 
-    const state = this.states.find(({ id }) => id === stateId)
+    const state = this.states.find(({ id }) => id === stateId);
 
     if (!state) {
-      return
+      return;
     }
 
-    const point = this.clientToSvgPoint(event, svg)
+    const point = this.clientToSvgPoint(event, svg);
 
-    this.selection = { type: 'state', id: stateId }
+    this.selection = { type: "state", id: stateId };
     this.dragState = {
       stateId,
       offsetX: point.x - state.x,
       offsetY: point.y - state.y,
       didMove: false,
       originSnapshot: this.captureSnapshot(),
-    }
+    };
 
-    this.render()
+    this.render();
 
     const handleMouseMove = (moveEvent: MouseEvent): void => {
       if (!this.dragState) {
-        return
+        return;
       }
 
-      const currentSvg = this.canvasHost.querySelector<SVGSVGElement>('svg')
+      const currentSvg = this.canvasHost.querySelector<SVGSVGElement>("svg");
 
       if (!currentSvg) {
-        return
+        return;
       }
 
-      const dragPoint = this.clientToSvgPoint(moveEvent, currentSvg)
+      const dragPoint = this.clientToSvgPoint(moveEvent, currentSvg);
       const position = clampStatePosition(
         dragPoint.x - this.dragState.offsetX,
         dragPoint.y - this.dragState.offsetY,
-      )
-      const activeState = this.states.find((item) => item.id === this.dragState?.stateId)
+      );
+      const activeState = this.states.find(
+        (item) => item.id === this.dragState?.stateId,
+      );
 
       if (!activeState) {
-        return
+        return;
       }
 
-      this.dragState.didMove ||= activeState.x !== position.x || activeState.y !== position.y
+      this.dragState.didMove ||=
+        activeState.x !== position.x || activeState.y !== position.y;
 
       this.states = this.states.map((item) =>
-        item.id === this.dragState?.stateId ? { ...item, x: position.x, y: position.y } : item,
-      )
+        item.id === this.dragState?.stateId
+          ? { ...item, x: position.x, y: position.y }
+          : item,
+      );
 
-      this.clearNotice()
-      this.renderCanvas()
-      this.renderStatus()
-    }
+      this.clearNotice();
+      this.renderCanvas();
+      this.renderStatus();
+    };
 
     const handleMouseUp = (): void => {
-      const dragState = this.dragState
+      const dragState = this.dragState;
 
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
 
       if (dragState?.didMove) {
-        this.commitHistory(dragState.originSnapshot)
+        this.commitHistory(dragState.originSnapshot);
       }
 
-      this.dragState = null
-      this.renderToolbar()
-      this.renderCanvas()
-      this.renderStatus()
-    }
+      this.dragState = null;
+      this.renderToolbar();
+      this.renderCanvas();
+      this.renderStatus();
+    };
 
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
 
-    this.renderCanvas()
-    this.renderStatus()
+    this.renderCanvas();
+    this.renderStatus();
   }
 
   private addState(x: number, y: number): void {
-    const stateId = this.createNextId('q', this.states.map(({ id }) => id), this.nextStateIndex)
-    const state = createState(stateId, stateId, x, y)
-    const previousSnapshot = this.captureSnapshot()
+    const stateId = this.createNextId(
+      "q",
+      this.states.map(({ id }) => id),
+      this.nextStateIndex,
+    );
+    const state = createState(stateId, stateId, x, y);
+    const previousSnapshot = this.captureSnapshot();
 
-    this.nextStateIndex = this.parseTrailingNumber(stateId, 'q') + 1
-    this.states = [...this.states, state]
-    this.selection = { type: 'state', id: state.id }
-    this.commitHistory(previousSnapshot)
-    this.clearNotice()
-    this.resetSimulationState()
-    this.render()
+    this.nextStateIndex = this.parseTrailingNumber(stateId, "q") + 1;
+    this.states = [...this.states, state];
+    this.selection = { type: "state", id: state.id };
+    this.commitHistory(previousSnapshot);
+    this.clearNotice();
+    this.resetSimulationState();
+    this.render();
   }
 
   private deleteSelection(): void {
     if (this.selection === null) {
-      return
+      return;
     }
 
-    const previousSnapshot = this.captureSnapshot()
+    const previousSnapshot = this.captureSnapshot();
 
-    if (this.selection?.type === 'state') {
-      const stateId = this.selection.id
-      this.states = this.states.filter(({ id }) => id !== stateId)
+    if (this.selection?.type === "state") {
+      const stateId = this.selection.id;
+      this.states = this.states.filter(({ id }) => id !== stateId);
       this.transitions = this.transitions.filter(
         ({ fromId, toId }) => fromId !== stateId && toId !== stateId,
-      )
+      );
 
       if (this.connectFromId === stateId) {
-        this.connectFromId = null
+        this.connectFromId = null;
       }
     }
 
-    if (this.selection?.type === 'transition') {
-      const transitionId = this.selection.id
-      this.transitions = this.transitions.filter(({ id }) => id !== transitionId)
+    if (this.selection?.type === "transition") {
+      const transitionId = this.selection.id;
+      this.transitions = this.transitions.filter(
+        ({ id }) => id !== transitionId,
+      );
     }
 
-    this.selection = null
-    this.commitHistory(previousSnapshot)
-    this.clearNotice()
-    this.resetSimulationState()
-    this.render()
+    this.selection = null;
+    this.commitHistory(previousSnapshot);
+    this.clearNotice();
+    this.resetSimulationState();
+    this.render();
   }
 
   private saveJson(): void {
-    downloadAutomatonJson(this.states, this.transitions)
-    this.setNotice(`Saved ${this.states.length} states and ${this.transitions.length} transitions to JSON.`)
+    downloadAutomatonJson(this.states, this.transitions);
+    this.setNotice(
+      `Saved ${this.states.length} states and ${this.transitions.length} transitions to JSON.`,
+    );
   }
 
   private openJsonFilePicker(): void {
-    this.fileInput.value = ''
-    this.fileInput.click()
+    this.fileInput.value = "";
+    this.fileInput.click();
   }
 
   private async handleFileSelection(): Promise<void> {
-    const [file] = Array.from(this.fileInput.files ?? [])
+    const [file] = Array.from(this.fileInput.files ?? []);
 
     if (!file) {
-      return
+      return;
     }
 
     try {
-      const document = parseAutomaton(await file.text())
-      const previousSnapshot = this.captureSnapshot()
-      this.states = document.states
-      this.transitions = document.transitions
-      this.selection = null
-      this.connectFromId = null
-      this.dragState = null
-      this.mode = 'select'
-      this.nextStateIndex = this.computeNextIndex(this.states.map(({ id }) => id), 'q')
-      this.nextTransitionIndex = this.computeNextIndex(this.transitions.map(({ id }) => id), 't')
-      this.commitHistory(previousSnapshot)
-      this.resetSimulationState()
-      this.setNotice(`Loaded ${document.states.length} states and ${document.transitions.length} transitions from ${file.name}.`)
-      this.render()
+      const document = parseAutomaton(await file.text());
+      const previousSnapshot = this.captureSnapshot();
+      this.states = document.states;
+      this.transitions = document.transitions;
+      this.selection = null;
+      this.connectFromId = null;
+      this.dragState = null;
+      this.mode = "select";
+      this.nextStateIndex = this.computeNextIndex(
+        this.states.map(({ id }) => id),
+        "q",
+      );
+      this.nextTransitionIndex = this.computeNextIndex(
+        this.transitions.map(({ id }) => id),
+        "t",
+      );
+      this.commitHistory(previousSnapshot);
+      this.resetSimulationState();
+      this.setNotice(
+        `Loaded ${document.states.length} states and ${document.transitions.length} transitions from ${file.name}.`,
+      );
+      this.render();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not load automaton file.'
-      this.setNotice(message)
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not load automaton file.";
+      this.setNotice(message);
     }
   }
 
   private exportSvg(): void {
     if (this.states.length === 0) {
-      return
+      return;
     }
 
-    downloadAutomatonSvg(this.states, this.transitions)
-    this.setNotice('Exported automaton SVG without the editor grid.')
+    downloadAutomatonSvg(this.states, this.transitions);
+    this.setNotice("Exported automaton SVG without the editor grid.");
   }
 
   private runFullSimulation(): void {
-    this.runnerWord = this.runnerInput.value
-    this.runnerResult = simulateWord(this.states, this.transitions, this.runnerWord)
-    this.runnerStepIndex = this.runnerResult.status === 'accepted' ? this.runnerResult.trace.length - 1 : -1
-    this.renderToolbar()
-    this.renderCanvas()
-    this.renderRunner()
+    this.runnerWord = this.runnerInput.value;
+    this.runnerResult = simulateWord(
+      this.states,
+      this.transitions,
+      this.runnerWord,
+    );
+    this.runnerStepIndex =
+      this.runnerResult.status === "accepted"
+        ? this.runnerResult.trace.length - 1
+        : -1;
+    this.renderToolbar();
+    this.renderCanvas();
+    this.renderRunner();
   }
 
   private stepSimulation(): void {
-    this.runnerWord = this.runnerInput.value
+    this.runnerWord = this.runnerInput.value;
 
-    const needsFreshRun = this.runnerResult === null || this.runnerStepIndex >= this.runnerResult.trace.length - 1
+    const needsFreshRun =
+      this.runnerResult === null ||
+      this.runnerStepIndex >= this.runnerResult.trace.length - 1;
 
     if (needsFreshRun) {
-      this.runnerResult = simulateWord(this.states, this.transitions, this.runnerWord)
+      this.runnerResult = simulateWord(
+        this.states,
+        this.transitions,
+        this.runnerWord,
+      );
 
-      if (this.runnerResult.status !== 'accepted') {
-        this.runnerStepIndex = -1
-        this.renderToolbar()
-        this.renderCanvas()
-        this.renderRunner()
-        return
+      if (this.runnerResult.status !== "accepted") {
+        this.runnerStepIndex = -1;
+        this.renderToolbar();
+        this.renderCanvas();
+        this.renderRunner();
+        return;
       }
 
-      this.runnerStepIndex = 0
+      this.runnerStepIndex = 0;
     } else {
-      this.runnerStepIndex += 1
+      this.runnerStepIndex += 1;
     }
 
-    this.renderToolbar()
-    this.renderCanvas()
-    this.renderRunner()
+    this.renderToolbar();
+    this.renderCanvas();
+    this.renderRunner();
   }
 
   private resetSimulation(): void {
-    this.resetSimulationState()
-    this.renderToolbar()
-    this.renderCanvas()
-    this.renderRunner()
+    this.resetSimulationState();
+    this.renderToolbar();
+    this.renderCanvas();
+    this.renderRunner();
   }
 
   private resetSimulationState(): void {
-    this.runnerResult = null
-    this.runnerStepIndex = -1
+    this.runnerResult = null;
+    this.runnerStepIndex = -1;
   }
 
   private getCurrentRunStateId(): string | null {
-    if (this.runnerResult?.status !== 'accepted' || this.runnerStepIndex < 0) {
-      return null
+    if (this.runnerResult?.status !== "accepted" || this.runnerStepIndex < 0) {
+      return null;
     }
 
-    const step = this.runnerResult.trace[this.runnerStepIndex]
-    return step?.stateId ?? null
+    const step = this.runnerResult.trace[this.runnerStepIndex];
+    return step?.stateId ?? null;
   }
 
   private setNotice(message: string): void {
-    this.notice = message
-    window.clearTimeout(this.noticeTimeout)
+    this.notice = message;
+    window.clearTimeout(this.noticeTimeout);
     this.noticeTimeout = window.setTimeout(() => {
-      this.notice = null
-      this.renderStatus()
-    }, 4000)
-    this.renderStatus()
+      this.notice = null;
+      this.renderStatus();
+    }, 4000);
+    this.renderStatus();
   }
 
   private clearNotice(): void {
-    this.notice = null
-    window.clearTimeout(this.noticeTimeout)
+    this.notice = null;
+    window.clearTimeout(this.noticeTimeout);
   }
 
   private undo(): void {
-    const snapshot = this.undoHistory.at(-1)
+    const snapshot = this.undoHistory.at(-1);
 
     if (!snapshot) {
-      return
+      return;
     }
 
-    this.undoHistory = this.undoHistory.slice(0, -1)
-    this.redoHistory = this.pushHistoryEntry(this.redoHistory, this.captureSnapshot())
-    this.applySnapshot(snapshot)
-    this.clearNotice()
-    this.resetSimulationState()
-    this.render()
+    this.undoHistory = this.undoHistory.slice(0, -1);
+    this.redoHistory = this.pushHistoryEntry(
+      this.redoHistory,
+      this.captureSnapshot(),
+    );
+    this.applySnapshot(snapshot);
+    this.clearNotice();
+    this.resetSimulationState();
+    this.render();
   }
 
   private redo(): void {
-    const snapshot = this.redoHistory.at(-1)
+    const snapshot = this.redoHistory.at(-1);
 
     if (!snapshot) {
-      return
+      return;
     }
 
-    this.redoHistory = this.redoHistory.slice(0, -1)
-    this.undoHistory = this.pushHistoryEntry(this.undoHistory, this.captureSnapshot())
-    this.applySnapshot(snapshot)
-    this.clearNotice()
-    this.resetSimulationState()
-    this.render()
+    this.redoHistory = this.redoHistory.slice(0, -1);
+    this.undoHistory = this.pushHistoryEntry(
+      this.undoHistory,
+      this.captureSnapshot(),
+    );
+    this.applySnapshot(snapshot);
+    this.clearNotice();
+    this.resetSimulationState();
+    this.render();
   }
 
   private captureSnapshot(): EditorSnapshot {
@@ -861,83 +989,102 @@ export class EditorApp {
       selection: this.selection === null ? null : { ...this.selection },
       connectFromId: this.connectFromId,
       mode: this.mode,
-    }
+    };
   }
 
   private applySnapshot(snapshot: EditorSnapshot): void {
-    this.states = snapshot.states.map((state) => ({ ...state }))
-    this.transitions = snapshot.transitions.map((transition) => ({ ...transition }))
-    this.selection = snapshot.selection === null ? null : { ...snapshot.selection }
-    this.connectFromId = snapshot.connectFromId
-    this.mode = snapshot.mode
-    this.dragState = null
-    this.nextStateIndex = this.computeNextIndex(this.states.map(({ id }) => id), 'q')
-    this.nextTransitionIndex = this.computeNextIndex(this.transitions.map(({ id }) => id), 't')
+    this.states = snapshot.states.map((state) => ({ ...state }));
+    this.transitions = snapshot.transitions.map((transition) => ({
+      ...transition,
+    }));
+    this.selection =
+      snapshot.selection === null ? null : { ...snapshot.selection };
+    this.connectFromId = snapshot.connectFromId;
+    this.mode = snapshot.mode;
+    this.dragState = null;
+    this.nextStateIndex = this.computeNextIndex(
+      this.states.map(({ id }) => id),
+      "q",
+    );
+    this.nextTransitionIndex = this.computeNextIndex(
+      this.transitions.map(({ id }) => id),
+      "t",
+    );
   }
 
   private commitHistory(previousSnapshot: EditorSnapshot): void {
     if (this.snapshotsMatch(previousSnapshot, this.captureSnapshot())) {
-      return
+      return;
     }
 
-    this.undoHistory = this.pushHistoryEntry(this.undoHistory, previousSnapshot)
-    this.redoHistory = []
+    this.undoHistory = this.pushHistoryEntry(
+      this.undoHistory,
+      previousSnapshot,
+    );
+    this.redoHistory = [];
   }
 
-  private pushHistoryEntry(history: EditorSnapshot[], snapshot: EditorSnapshot): EditorSnapshot[] {
-    return [...history, snapshot].slice(-HISTORY_LIMIT)
+  private pushHistoryEntry(
+    history: EditorSnapshot[],
+    snapshot: EditorSnapshot,
+  ): EditorSnapshot[] {
+    return [...history, snapshot].slice(-HISTORY_LIMIT);
   }
 
   private snapshotsMatch(left: EditorSnapshot, right: EditorSnapshot): boolean {
-    return JSON.stringify(left) === JSON.stringify(right)
+    return JSON.stringify(left) === JSON.stringify(right);
   }
 
   private computeNextIndex(ids: string[], prefix: string): number {
-    let highest = -1
+    let highest = -1;
 
     for (const id of ids) {
       if (!id.startsWith(prefix)) {
-        continue
+        continue;
       }
 
-      const suffix = Number(id.slice(prefix.length))
+      const suffix = Number(id.slice(prefix.length));
 
       if (Number.isInteger(suffix) && suffix >= 0) {
-        highest = Math.max(highest, suffix)
+        highest = Math.max(highest, suffix);
       }
     }
 
-    return highest + 1
+    return highest + 1;
   }
 
-  private createNextId(prefix: string, existingIds: string[], startIndex: number): string {
-    const usedIds = new Set(existingIds)
-    let index = startIndex
+  private createNextId(
+    prefix: string,
+    existingIds: string[],
+    startIndex: number,
+  ): string {
+    const usedIds = new Set(existingIds);
+    let index = startIndex;
 
     while (usedIds.has(`${prefix}${index}`)) {
-      index += 1
+      index += 1;
     }
 
-    return `${prefix}${index}`
+    return `${prefix}${index}`;
   }
 
   private parseTrailingNumber(id: string, prefix: string): number {
     if (!id.startsWith(prefix)) {
-      return 0
+      return 0;
     }
 
-    const suffix = Number(id.slice(prefix.length))
-    return Number.isInteger(suffix) && suffix >= 0 ? suffix : 0
+    const suffix = Number(id.slice(prefix.length));
+    return Number.isInteger(suffix) && suffix >= 0 ? suffix : 0;
   }
 
   private clientToSvgPoint(event: MouseEvent, svg: SVGSVGElement): DOMPoint {
-    const matrix = svg.getScreenCTM()
+    const matrix = svg.getScreenCTM();
 
     if (!matrix) {
-      return new DOMPoint(0, 0)
+      return new DOMPoint(0, 0);
     }
 
-    const point = new DOMPoint(event.clientX, event.clientY)
-    return point.matrixTransform(matrix.inverse())
+    const point = new DOMPoint(event.clientX, event.clientY);
+    return point.matrixTransform(matrix.inverse());
   }
 }
